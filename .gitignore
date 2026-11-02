@@ -1,0 +1,8 @@
+.venv
+
+danceai.egg-info/
+AGENTS.md
+.DS_Store
+__pycache__/
+data/
+assets/
