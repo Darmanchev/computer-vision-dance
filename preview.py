@@ -4,6 +4,7 @@ from contextlib import closing
 import cv2
 
 from danceai.pose import create_landmarker, detect_pose
+from danceai.processing import joint_angles
 from danceai.video import read_frames
 from danceai.visualization import draw_pose_points
 
@@ -26,6 +27,10 @@ def main():
         raise RuntimeError(f"Could not save {output_path}")
 
     print(f"People detected: {len(result.pose_landmarks)}")
+    if result.pose_world_landmarks:
+        for joint, angle in joint_angles(result.pose_world_landmarks[0]).items():
+            measurement = f"{angle:.1f}°" if angle is not None else "unavailable"
+            print(f"{joint}: {measurement}")
     print(f"Saved {output_path}")
 
 

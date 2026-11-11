@@ -4,14 +4,18 @@ from mediapipe.tasks.python import vision
 
 BODY_CONNECTIONS = (
     (11, 12),                       # Shoulders
-    (11, 13), (13, 15),             # Left arm
-    (12, 14), (14, 16),             # Right arm
+    (11, 13), (13, 15), (15,19),    # Left arm
+    (12, 14), (14, 16), (16,20),    # Right arm
     (11, 23), (12, 24), (23, 24),   # Torso
     (23, 25), (25, 27),             # Left leg
     (24, 26), (26, 28),             # Right leg
     (27, 29), (29, 31), (27, 31),   # Left foot
     (28, 30), (30, 32), (28, 32),   # Right foot
 )
+
+STANDALONE_POINTS = {0, 19, 20}
+
+DRAWN_POINTS = {index for pair in BODY_CONNECTIONS for index in pair} | STANDALONE_POINTS
 
 
 def draw_pose_points(frame: np.ndarray, result: vision.PoseLandmarkerResult) -> np.ndarray:
@@ -22,9 +26,10 @@ def draw_pose_points(frame: np.ndarray, result: vision.PoseLandmarkerResult) -> 
         visible_points = {}
 
         for index, point in enumerate(pose):
-            if 1 <= index <= 10:
+            if index not in DRAWN_POINTS:
                 continue
-            
+
+
             if point.visibility is not None and point.visibility < 0.5:
                 continue
 
