@@ -1,6 +1,5 @@
 import numpy as np
 
-
 JOINTS = {
     "left elbow": (11, 13, 15),
     "right elbow": (12, 14, 16),
