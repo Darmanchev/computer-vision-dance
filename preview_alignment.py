@@ -9,8 +9,10 @@ import numpy as np
 
 from danceai.alignment import align_measurements
 from danceai.comparison import compare_angles
+from danceai.feedback import find_joint_feedback
 from danceai.pipeline import load_measurements
 from danceai.processing import JOINTS
+from danceai.visualization import BODY_CONNECTIONS
 
 from dotenv import load_dotenv
 
@@ -19,30 +21,54 @@ load_dotenv()
 VIDEO_PATH1 = os.environ["VIDEO_PATH1"]
 VIDEO_PATH2 = os.environ["VIDEO_PATH2"]
 
+LIMB_JOINTS = {
+    "left elbow": "Left arm",
+    "right elbow": "Right arm",
+    "left knee": "Left leg",
+    "right knee": "Right leg",
+}
 
-def draw_reference_arm(frame, reference_size, reference_pose, learner_pose):
-    shoulder, elbow, wrist = JOINTS["left elbow"]
-    if len(reference_pose) <= wrist or len(learner_pose) <= shoulder:
-        return
 
-    reference_arm = [reference_pose[index] for index in (shoulder, elbow, wrist)]
-    learner_shoulder = learner_pose[shoulder]
-    points = [*reference_arm, learner_shoulder]
-    if any(point["visibility"] is None or not point["visibility"] >= 0.5 for point in points):
-        return
+def draw_reference_pose(frame, reference_size, reference_pose, learner_pose, active_joints):
+    def visible_pixels(pose, size):
+        return {
+            index: np.array([point["x"], point["y"]]) * size
+            for index, point in enumerate(pose)
+            if (point.get("visibility") or 0) >= 0.5 and np.isfinite((point["x"], point["y"])).all()
+        }
 
-    arm = np.array([(point["x"], point["y"]) for point in reference_arm]) * reference_size
     height, width = frame.shape[:2]
-    anchor = np.array([learner_shoulder["x"] * width, learner_shoulder["y"] * height])
-    if not np.isfinite(arm).all() or not np.isfinite(anchor).all():
+    reference = visible_pixels(reference_pose, reference_size)
+    learner = visible_pixels(learner_pose, (width, height))
+    anchors = [index for index in (11, 12, 23, 24) if index in reference and index in learner]
+    if not anchors:
         return
 
-    shoulder_px, elbow_px, wrist_px = np.rint(arm - arm[0] + anchor).astype(int)
-    cv2.line(frame, tuple(shoulder_px), tuple(elbow_px), (0, 255, 255), 3, cv2.LINE_AA)
-    cv2.line(frame, tuple(elbow_px), tuple(wrist_px), (0, 255, 255), 3, cv2.LINE_AA)
+    reference_torso = np.array([reference[index] for index in anchors])
+    learner_torso = np.array([learner[index] for index in anchors])
+    reference_center = reference_torso.mean(axis=0)
+    learner_center = learner_torso.mean(axis=0)
+    reference_spread = np.linalg.norm(reference_torso - reference_center)
+    learner_spread = np.linalg.norm(learner_torso - learner_center)
+    scale = learner_spread / reference_spread if reference_spread and learner_spread else 1
+    aligned = {
+        index: tuple(np.rint((point - reference_center) * scale + learner_center).astype(int))
+        for index, point in reference.items()
+    }
+
+    highlighted = set()
+    for joint in active_joints:
+        start, middle, end = JOINTS[joint]
+        highlighted.update(((start, middle), (middle, end)))
+
+    for start, end in BODY_CONNECTIONS:
+        if start in aligned and end in aligned:
+            is_highlighted = (start, end) in highlighted
+            color = (0, 255, 255) if is_highlighted else (255, 190, 100)
+            cv2.line(frame, aligned[start], aligned[end], color, 3 if is_highlighted else 2, cv2.LINE_AA)
 
 
-def save_alignment_preview(reference_video, learner_video, reference, learner, path, output):
+def save_alignment_preview(reference_video, learner_video, reference, learner, path, output, *, feedback=None):
     """Save DTW pairs at 30 FPS; source timing is shown in labels, without audio."""
     output = Path(output)
     sources = [Path(reference_video), Path(learner_video)]
@@ -94,8 +120,13 @@ def save_alignment_preview(reference_video, learner_video, reference, learner, p
                 if side == 0:
                     reference_size = (resized.shape[1], resized.shape[0])
                 else:
-                    draw_reference_arm(
-                        resized, reference_size, reference[i].get("landmarks", []), learner[j].get("landmarks", [])
+                    active_joints = [
+                        joint for joint, intervals in (feedback or {}).items()
+                        if any(start <= timestamp <= end for start, end, _ in intervals)
+                    ]
+                    draw_reference_pose(
+                        resized, reference_size, reference[i].get("landmarks", []),
+                        learner[j].get("landmarks", []), active_joints,
                     )
 
                 panel = np.zeros((520, 360, 3), dtype=np.uint8)
@@ -145,8 +176,12 @@ def main():
     print(f"DTW distance (alignment cost): {distance:.2f}")
     for joint, error in compare_angles(reference, learner, path).items():
         print(f"{joint}: {error:.2f} degrees mean error")
-    save_alignment_preview(args.reference, args.learner, reference, learner, path, args.output)
+    feedback = {joint: find_joint_feedback(reference, learner, path, joint) for joint in LIMB_JOINTS}
+    save_alignment_preview(args.reference, args.learner, reference, learner, path, args.output, feedback=feedback)
     print(f"Saved {args.output} (one DTW pair per frame, 30 FPS, no audio)")
+    for joint, intervals in feedback.items():
+        for start, end, direction in intervals:
+            print(f"{LIMB_JOINTS[joint]} {start / 1000:.2f}–{end / 1000:.2f}s: {direction} at the {joint}")
 
 
 if __name__ == "__main__":
