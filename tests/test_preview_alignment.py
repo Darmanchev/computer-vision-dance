@@ -40,6 +40,11 @@ class PreviewAlignmentTest(unittest.TestCase):
                 for expected_color in (None, "yellow", "blue"):
                     success, frame = capture.read()
                     self.assertTrue(success)
+                    footer = frame[520:, 360:]
+                    self.assertTrue(footer.size)
+                    blue, green, red = cv2.split(footer)
+                    shows_correction = np.any((blue < 100) & (green > 180) & (red > 180))
+                    self.assertEqual(shows_correction, expected_color != "blue")
                     for x, y in ((580, 280), (630, 320)):
                         blue, green, red = frame[y, x]
                         self.assertEqual(blue < 100 and green > 180 and red > 180, expected_color == "yellow")

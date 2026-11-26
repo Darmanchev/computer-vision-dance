@@ -27,6 +27,7 @@ def compare_angles(reference, learner, path):
 
     return errors
 
+
 def main() -> None:
     reference = load_measurements(REFERENCE_PATH)
     learner = load_measurements(LEARNER_PATH)

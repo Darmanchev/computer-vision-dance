@@ -1,6 +1,17 @@
 from itertools import groupby
 from statistics import mean
 
+from danceai.processing import limb_directions
+
+
+def joints_with_direction_gap(reference, learner, joints):
+    """Yield limbs with a visible segment over the 2D direction tolerance."""
+    for joint in joints:
+        directions = zip(limb_directions(reference, joint), limb_directions(learner, joint))
+        if any(abs((actual - expected + 180) % 360 - 180) > 30
+               for expected, actual in directions if expected is not None and actual is not None):
+            yield joint
+
 
 def find_joint_feedback(reference, learner, path, joint):
     """Return bend/straighten corrections with start and end times in the learner video."""

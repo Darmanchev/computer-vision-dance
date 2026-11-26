@@ -25,3 +25,33 @@ def joint_angles(landmarks) -> dict[str, float | None]:
 
         angles[name] = float(np.degrees(np.arctan2(np.linalg.norm(np.cross(a, b)), a @ b)))
     return angles
+
+
+def visible_image_points(landmarks, image_size):
+    return {
+        index: np.array([point["x"], point["y"]]) * image_size
+        for index, point in enumerate(landmarks)
+        if (point.get("visibility") or 0) >= 0.5 and np.isfinite((point["x"], point["y"])).all()
+    }
+
+
+def limb_directions(points, joint):
+    """Return the two segment directions relative to the torso in the image plane."""
+    if not all(index in points for index in (11, 12, 23, 24)):
+        return None, None
+
+    torso = points[11] + points[12] - points[23] - points[24]
+    if not torso.any():
+        return None, None
+
+    directions = []
+    start, middle, end = JOINTS[joint]
+    for first, last in ((start, middle), (middle, end)):
+        angle = None
+        if first in points and last in points:
+            segment = points[last] - points[first]
+            if segment.any():
+                cross = torso[0] * segment[1] - torso[1] * segment[0]
+                angle = float(np.degrees(np.arctan2(cross, torso @ segment)))
+        directions.append(angle)
+    return tuple(directions)
