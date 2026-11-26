@@ -5,6 +5,8 @@ JOINTS = {
     "right elbow": (12, 14, 16),
     "left knee": (23, 25, 27),
     "right knee": (24, 26, 28),
+    "left shoulder": (13, 11, 23),
+    "right shoulder": (14, 12, 24),
 }
 
 

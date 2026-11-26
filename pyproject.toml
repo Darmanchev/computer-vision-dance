@@ -12,6 +12,7 @@ dependencies = [
     "opencv-python",
     "numpy",
     "tslearn>=0.10.0",
+    "python-dotenv>=1.2.4",
 ]
 
 [tool.setuptools.packages.find]
