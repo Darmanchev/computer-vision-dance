@@ -9,7 +9,7 @@ from preview_alignment import save_alignment_preview
 
 
 class PreviewAlignmentTest(unittest.TestCase):
-    def test_writes_one_output_frame_per_pair(self):
+    def test_writes_each_pair_and_overlays_only_first_usable_arm(self):
         with tempfile.TemporaryDirectory() as folder:
             source = Path(folder) / "input.mp4"
             output = Path(folder) / "output.mp4"
@@ -18,17 +18,30 @@ class PreviewAlignmentTest(unittest.TestCase):
             for value in (0, 80, 160):
                 writer.write(np.full((48, 64, 3), value, np.uint8))
             writer.release()
-            measurements = [{"timestamp_ms": ms} for ms in (0, 100, 200)]
+            reference = [{"timestamp_ms": ms} for ms in (0, 100, 200)]
+            learner = [{"timestamp_ms": ms} for ms in (0, 100, 200)]
+            reference_arm = [{}] * 16
+            for index, (x, y) in ((11, (0.25, 0.25)), (13, (0.5, 0.25)), (15, (0.5, 0.5))):
+                reference_arm[index] = {"x": x, "y": y, "visibility": 1.0}
+            learner_pose = reference_arm.copy()
+            learner_pose[11] = {"x": 0.5, "y": 0.5, "visibility": 1.0}
+            for index in (1, 2):
+                reference[index]["landmarks"] = reference_arm
+            for index in (0, 2):
+                learner[index]["landmarks"] = learner_pose
 
-            save_alignment_preview(source, source, measurements, measurements,
+            save_alignment_preview(source, source, reference, learner,
                                    [(0, 0), (1, 0), (2, 2)], output)
 
             capture = cv2.VideoCapture(str(output))
             try:
-                decoded = 0
-                while capture.read()[0]:
-                    decoded += 1
-                self.assertEqual(decoded, 3)
+                for expected_overlay in (False, True, False):
+                    success, frame = capture.read()
+                    self.assertTrue(success)
+                    for x, y in ((580, 280), (630, 320)):
+                        blue, green, red = frame[y, x]
+                        self.assertEqual(blue < 80 and green > 180 and red > 180, expected_overlay)
+                self.assertFalse(capture.read()[0])
             finally:
                 capture.release()
 

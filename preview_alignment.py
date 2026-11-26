@@ -10,6 +10,7 @@ import numpy as np
 from danceai.alignment import align_measurements
 from danceai.comparison import compare_angles
 from danceai.pipeline import load_measurements
+from danceai.processing import JOINTS
 
 from dotenv import load_dotenv
 
@@ -17,6 +18,30 @@ load_dotenv()
 
 VIDEO_PATH1 = os.environ["VIDEO_PATH1"]
 VIDEO_PATH2 = os.environ["VIDEO_PATH2"]
+
+
+def draw_reference_arm(frame, reference_size, reference_pose, learner_pose):
+    shoulder, elbow, wrist = JOINTS["left elbow"]
+    if len(reference_pose) <= wrist or len(learner_pose) <= shoulder:
+        return False
+
+    reference_arm = [reference_pose[index] for index in (shoulder, elbow, wrist)]
+    learner_shoulder = learner_pose[shoulder]
+    points = [*reference_arm, learner_shoulder]
+    if any(point["visibility"] is None or not point["visibility"] >= 0.5 for point in points):
+        return False
+
+    arm = np.array([(point["x"], point["y"]) for point in reference_arm]) * reference_size
+    height, width = frame.shape[:2]
+    anchor = np.array([learner_shoulder["x"] * width, learner_shoulder["y"] * height])
+    if not np.isfinite(arm).all() or not np.isfinite(anchor).all():
+        return False
+
+    shoulder_px, elbow_px, wrist_px = np.rint(arm - arm[0] + anchor).astype(int)
+    cv2.line(frame, tuple(shoulder_px), tuple(elbow_px), (0, 255, 255), 3, cv2.LINE_AA)
+    cv2.line(frame, tuple(elbow_px), tuple(wrist_px), (0, 255, 255), 3, cv2.LINE_AA)
+    return True
+
 
 def save_alignment_preview(reference_video, learner_video, reference, learner, path, output):
     """Save DTW pairs at 30 FPS; source timing is shown in labels, without audio."""
@@ -48,6 +73,7 @@ def save_alignment_preview(reference_video, learner_video, reference, learner, p
 
         positions = [-1, -1]
         cached = [None, None]
+        arm_drawn = False
         for i, j in path:
             panels = []
             for side, (frames, index, label) in enumerate(
@@ -67,6 +93,13 @@ def save_alignment_preview(reference_video, learner_video, reference, learner, p
                 height, width = frame.shape[:2]
                 scale = min(360 / width, 480 / height)
                 resized = cv2.resize(frame, (max(1, round(width * scale)), max(1, round(height * scale))))
+                if side == 0:
+                    reference_size = (resized.shape[1], resized.shape[0])
+                elif not arm_drawn:
+                    arm_drawn = draw_reference_arm(
+                        resized, reference_size, reference[i].get("landmarks", []), learner[j].get("landmarks", [])
+                    )
+
                 panel = np.zeros((520, 360, 3), dtype=np.uint8)
                 x = (360 - resized.shape[1]) // 2
                 y = 40 + (480 - resized.shape[0]) // 2
