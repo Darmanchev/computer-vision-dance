@@ -30,11 +30,16 @@ def extract_measurements(video_path: str | Path, model_path: str | Path) -> list
                 result = detect_pose(model, frame, timestamp_ms)
                 if result.pose_world_landmarks:
                     angles = joint_angles(result.pose_world_landmarks[0])
+                    landmarks = [
+                        {"x": point.x, "y": point.y, "visibility": point.visibility}
+                        for point in result.pose_landmarks[0]
+                    ]
 
                     measurements.append(
                         {
                             "timestamp_ms": timestamp_ms,
                             "angles": angles,
+                            "landmarks": landmarks,
                         }
                     )
 
