@@ -9,7 +9,7 @@ from preview_alignment import save_alignment_preview
 
 
 class PreviewAlignmentTest(unittest.TestCase):
-    def test_writes_each_pair_and_overlays_only_first_usable_arm(self):
+    def test_writes_each_pair_and_overlays_every_usable_arm(self):
         with tempfile.TemporaryDirectory() as folder:
             source = Path(folder) / "input.mp4"
             output = Path(folder) / "output.mp4"
@@ -35,7 +35,7 @@ class PreviewAlignmentTest(unittest.TestCase):
 
             capture = cv2.VideoCapture(str(output))
             try:
-                for expected_overlay in (False, True, False):
+                for expected_overlay in (False, True, True):
                     success, frame = capture.read()
                     self.assertTrue(success)
                     for x, y in ((580, 280), (630, 320)):

@@ -23,24 +23,23 @@ VIDEO_PATH2 = os.environ["VIDEO_PATH2"]
 def draw_reference_arm(frame, reference_size, reference_pose, learner_pose):
     shoulder, elbow, wrist = JOINTS["left elbow"]
     if len(reference_pose) <= wrist or len(learner_pose) <= shoulder:
-        return False
+        return
 
     reference_arm = [reference_pose[index] for index in (shoulder, elbow, wrist)]
     learner_shoulder = learner_pose[shoulder]
     points = [*reference_arm, learner_shoulder]
     if any(point["visibility"] is None or not point["visibility"] >= 0.5 for point in points):
-        return False
+        return
 
     arm = np.array([(point["x"], point["y"]) for point in reference_arm]) * reference_size
     height, width = frame.shape[:2]
     anchor = np.array([learner_shoulder["x"] * width, learner_shoulder["y"] * height])
     if not np.isfinite(arm).all() or not np.isfinite(anchor).all():
-        return False
+        return
 
     shoulder_px, elbow_px, wrist_px = np.rint(arm - arm[0] + anchor).astype(int)
     cv2.line(frame, tuple(shoulder_px), tuple(elbow_px), (0, 255, 255), 3, cv2.LINE_AA)
     cv2.line(frame, tuple(elbow_px), tuple(wrist_px), (0, 255, 255), 3, cv2.LINE_AA)
-    return True
 
 
 def save_alignment_preview(reference_video, learner_video, reference, learner, path, output):
@@ -73,7 +72,6 @@ def save_alignment_preview(reference_video, learner_video, reference, learner, p
 
         positions = [-1, -1]
         cached = [None, None]
-        arm_drawn = False
         for i, j in path:
             panels = []
             for side, (frames, index, label) in enumerate(
@@ -95,8 +93,8 @@ def save_alignment_preview(reference_video, learner_video, reference, learner, p
                 resized = cv2.resize(frame, (max(1, round(width * scale)), max(1, round(height * scale))))
                 if side == 0:
                     reference_size = (resized.shape[1], resized.shape[0])
-                elif not arm_drawn:
-                    arm_drawn = draw_reference_arm(
+                else:
+                    draw_reference_arm(
                         resized, reference_size, reference[i].get("landmarks", []), learner[j].get("landmarks", [])
                     )
 
