@@ -2,6 +2,7 @@ import argparse
 import os
 import math
 import tempfile
+from contextlib import closing
 from pathlib import Path
 
 import cv2
@@ -9,9 +10,10 @@ import numpy as np
 
 from danceai.alignment import align_measurements
 from danceai.comparison import compare_angles
-from danceai.feedback import find_joint_feedback, joints_with_direction_gap
+from danceai.feedback import find_direction_feedback, find_joint_feedback
 from danceai.pipeline import load_measurements
 from danceai.processing import JOINTS, visible_image_points
+from danceai.video import read_frames
 from danceai.visualization import BODY_CONNECTIONS
 
 from dotenv import load_dotenv
@@ -92,12 +94,11 @@ def save_alignment_preview(reference_video, learner_video, reference, learner, p
         cached = [None, None]
         for i, j in path:
             learner_time = learner[j]["timestamp_ms"]
-            active_feedback = {
-                joint: direction
-                for joint, intervals in (feedback or {}).items()
-                for start, end, direction in intervals
-                if start <= learner_time <= end
-            }
+            active_feedback = {}
+            for joint, intervals in (feedback or {}).items():
+                active = [(cue, gap) for start, end, cue, gap in intervals if start <= learner_time <= end]
+                if active:
+                    active_feedback[joint] = active
             panels = []
             for side, (frames, index, label) in enumerate(
                 ((reference, i, "Reference"), (learner, j, "Learner"))
@@ -120,8 +121,7 @@ def save_alignment_preview(reference_video, learner_video, reference, learner, p
                 if side == 0:
                     reference_points = points
                 else:
-                    direction_joints = set(joints_with_direction_gap(reference_points, points, LIMB_JOINTS))
-                    draw_reference_pose(resized, reference_points, points, active_feedback.keys() | direction_joints)
+                    draw_reference_pose(resized, reference_points, points, active_feedback)
 
                 panel = np.zeros((520, 360, 3), dtype=np.uint8)
                 x = (360 - resized.shape[1]) // 2
@@ -135,14 +135,11 @@ def save_alignment_preview(reference_video, learner_video, reference, learner, p
             font = cv2.FONT_HERSHEY_SIMPLEX
             cv2.putText(preview, "Blue: reference pose", (10, 543), font, 0.55, REFERENCE_COLOR, 1, cv2.LINE_AA)
             cv2.putText(preview, "Yellow: correction below Learner", (10, 565), font, 0.55, CORRECTION_COLOR, 1, cv2.LINE_AA)
-            messages = []
-            for joint, limb in LIMB_JOINTS.items():
-                if joint in active_feedback:
-                    message = f"{joint.capitalize()}: {active_feedback[joint]}"
-                    messages.append(f"{message} / adjust aim" if joint in direction_joints else message)
-                elif joint in direction_joints:
-                    messages.append(f"{limb}: adjust direction")
-            for row, message in enumerate(messages):
+            ranked = sorted(active_feedback, key=lambda joint: max(gap for _, gap in active_feedback[joint]), reverse=True)
+            for row, joint in enumerate(ranked):
+                cues = [cue for cue, _ in active_feedback[joint]]
+                label = LIMB_JOINTS[joint] if cues == ["adjust direction"] else joint.capitalize()
+                message = f"{label}: {' / '.join(cues)}"
                 cv2.putText(preview, message, (370, 540 + row * 20), font, 0.55, CORRECTION_COLOR, 1, cv2.LINE_AA)
             writer.write(preview)
 
@@ -184,13 +181,26 @@ def main():
     print(f"DTW distance (alignment cost): {distance:.2f}")
     for joint, error in compare_angles(reference, learner, path).items():
         print(f"{joint}: {error:.2f} degrees mean error")
-    feedback = {joint: find_joint_feedback(reference, learner, path, joint) for joint in LIMB_JOINTS}
+    points_by_video = []
+    for video, frames in ((args.reference, reference), (args.learner, learner)):
+        with closing(read_frames(video)) as source_frames:
+            _, image = next(source_frames)
+            size = image.shape[1::-1]
+        points_by_video.append([visible_image_points(frame.get("landmarks", []), size) for frame in frames])
+
+    reference_points, learner_points = points_by_video
+    learner_poses = [(frame["timestamp_ms"], points) for frame, points in zip(learner, learner_points)]
+    feedback = {
+        joint: find_joint_feedback(reference, learner, path, joint)
+        + find_direction_feedback(reference_points, learner_poses, path, joint)
+        for joint in LIMB_JOINTS
+    }
     save_alignment_preview(args.reference, args.learner, reference, learner, path, args.output, feedback=feedback)
     print(f"Saved {args.output} (one DTW pair per frame, 30 FPS, no audio)")
 
     for joint, intervals in feedback.items():
-        for start, end, direction in intervals:
-            print(f"{LIMB_JOINTS[joint]} {start / 1000:.2f}–{end / 1000:.2f}s: {direction} at the {joint}")
+        for start, end, cue, gap in sorted(intervals):
+            print(f"{LIMB_JOINTS[joint]} {start / 1000:.2f}–{end / 1000:.2f}s: {cue} ({gap:.1f} degrees)")
 
 
 if __name__ == "__main__":

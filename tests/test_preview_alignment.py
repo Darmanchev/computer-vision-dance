@@ -33,7 +33,7 @@ class PreviewAlignmentTest(unittest.TestCase):
 
             save_alignment_preview(source, source, reference, learner,
                                    [(0, 0), (1, 0), (2, 2)], output,
-                                   feedback={"left elbow": [(0, 100, "bend more")]})
+                                   feedback={"left elbow": [(0, 100, "bend more", 25.0)]})
 
             capture = cv2.VideoCapture(str(output))
             try:
